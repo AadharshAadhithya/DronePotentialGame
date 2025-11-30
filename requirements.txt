@@ -1,0 +1,38 @@
+contourpy @ file:///home/task_176364362873675/conda-bld/contourpy_1763643921742/work
+cycler @ file:///tmp/build/80754af9/cycler_1637851556182/work
+cyipopt @ file:///home/conda/feedstock_root/build_artifacts/cyipopt_1756955294305/work
+fonttools @ file:///home/task_175975424449102/conda-bld/fonttools_1759754872210/work
+jax==0.8.1
+jax-cuda12-pjrt==0.8.1
+jax-cuda12-plugin==0.8.1
+jaxlib==0.8.1
+kiwisolver @ file:///home/task_176415926903268/conda-bld/kiwisolver_1764159297481/work
+matplotlib==3.10.6
+mkl-service==2.4.0
+mkl_fft @ file:///io/mkl313/mkl_fft_1730824109137/work
+mkl_random @ file:///io/mkl313/mkl_random_1730823916628/work
+ml_dtypes @ file:///home/task_176348072321648/conda-bld/ml_dtypes_1763480768349/work
+numpy @ file:///croot/numpy_and_numpy_base_1725470312869/work/dist/numpy-2.0.1-cp311-cp311-linux_x86_64.whl#sha256=372b9067cf9c96d8662c6f20ef49eeda43f0f8d2f074820224c954d8d8fae7bc
+nvidia-cublas-cu12==12.9.1.4
+nvidia-cuda-cupti-cu12==12.9.79
+nvidia-cuda-nvcc-cu12==12.9.86
+nvidia-cuda-nvrtc-cu12==12.9.86
+nvidia-cuda-runtime-cu12==12.9.79
+nvidia-cudnn-cu12==9.16.0.29
+nvidia-cufft-cu12==11.4.1.4
+nvidia-cusolver-cu12==11.7.5.82
+nvidia-cusparse-cu12==12.5.10.65
+nvidia-nccl-cu12==2.28.9
+nvidia-nvjitlink-cu12==12.9.86
+nvidia-nvshmem-cu12==3.4.5
+opt-einsum @ file:///tmp/build/80754af9/opt_einsum_1621500238896/work
+packaging @ file:///home/task_176104885106445/conda-bld/packaging_1761049078006/work
+pillow @ file:///home/task_176252754139500/conda-bld/pillow_1762528238884/work
+pyparsing @ file:///home/task_176397386651997/conda-bld/pyparsing_1763973878368/work
+PyQt6==6.9.1
+PyQt6_sip @ file:///home/task_175751008951770/conda-bld/pyqt-split_1757511023622/work/pyqt_sip
+python-dateutil @ file:///croot/python-dateutil_1716495738603/work
+scipy @ file:///home/conda/feedstock_root/build_artifacts/scipy-split_1763219265843/work/dist/scipy-1.16.3-cp311-cp311-linux_x86_64.whl#sha256=7ad7ede3d5e77ab99acf8c5332a36bb7cc24e9da64450c7fec8df2b48a1b2351
+sip @ file:///croot/sip_1756223371714/work
+six @ file:///croot/six_1744271502820/work
+tornado @ file:///croot/tornado_1748956929273/work
