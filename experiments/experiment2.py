@@ -79,17 +79,14 @@ def get_players_config(n_agents):
 # Redefine obstacles to be a middle bottleneck
 def create_funnel_obstacles():
     obstacles = []
-    # Middle section x=8 to x=12
-    # Top Wall
-    for x in np.linspace(8, 12, 9):
-        for y in np.linspace(6.5, 10, 8):
-             obstacles.append({'x': float(x), 'y': float(y), 'r': 0.5})
-             
-    # Bottom Wall
-    for x in np.linspace(8, 12, 9):
-        for y in np.linspace(0, 3.5, 8):
-             obstacles.append({'x': float(x), 'y': float(y), 'r': 0.5})
-             
+    # Two massive obstacles to create a gap between y=3.5 and y=6.5 at x=10
+    # Gap = 3.0m
+    # Top Pillar (Center (10, 9.0), Radius 2.5) -> Bottom edge at y=6.5
+    obstacles.append({'x': 10.0, 'y': 9.0, 'r': 2.5})
+    
+    # Bottom Pillar (Center (10, 1.0), Radius 2.5) -> Top edge at y=3.5
+    obstacles.append({'x': 10.0, 'y': 1.0, 'r': 2.5})
+    
     return obstacles
 
 OBSTACLES_SETUP = create_funnel_obstacles()
@@ -196,30 +193,7 @@ def create_bottleneck_game(n_agents, obstacles, tau=30, dt=0.2):
         players.append(p)
         
     # Joint Constraints
-    r_col = 1.2 # Slightly smaller collision radius to allow squeezing? 
-    # 2 cars * 1.2 * 2 (diam) = 4.8m. Corridor is 2m wide? 
-    # Wait, corridor is y=4 to y=6? Width = 2.0.
-    # Cars with radius 1.2 (diam 2.4) cannot fit single file!
-    # Wait, r_col is center-to-center distance.
-    # If r_col = 1.2, then if they are side-by-side, dist is 1.2.
-    # Physical radius is roughly r_col/2 = 0.6.
-    # Width 2.0 can fit 2.0 / 1.2 = 1.6 cars?
-    # So 2 cars side-by-side needs 1.2m.
-    # Obstacle gap is 4.0 to 6.0 = 2.0m.
-    # Obstacle radius is 0.5.
-    # Effective gap: (6.0 - 0.5) - (4.0 + 0.5) = 5.5 - 4.5 = 1.0m?
-    # Let's check obstacle geometry.
-    # Top wall: y >= 6.5, r=0.5. Edge at 6.0.
-    # Bottom wall: y <= 3.5, r=0.5. Edge at 4.0.
-    # Free space: y \in [4.0, 6.0]. Width = 2.0.
-    # If r_col = 1.5 (previous), physical width ~ 1.5.
-    # 2.0 space can fit ONE car comfortably, TWO cars is tight/impossible.
-    # This forces single-file!
-    # Let's relax r_col to 1.0 (Physical radius 0.5).
-    # Then 2 cars side by side = 1.0m. They fit in 2.0m easily.
-    # 3 cars = 2.0m. Tight squeeze.
-    
-    r_col = 1.2 # Forces staggering or single file for >2 cars
+    r_col = 1.0 # Reduced from 1.2 to allow tighter squeezing
     u_bound = np.array([0.2, 0.8])
     
     def g_constraints(x_joint, u_joint):
