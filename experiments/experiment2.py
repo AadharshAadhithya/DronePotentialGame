@@ -156,21 +156,42 @@ def create_bottleneck_game(n_agents, obstacles, tau=30, dt=0.2):
         xref = np.zeros((d, tau))
         t_range = np.arange(tau, dtype=float)
         
-        dx = goal[0] - start[0]
-        dy = goal[1] - start[1]
-        dist = np.sqrt(dx**2 + dy**2)
-        target_theta = np.arctan2(dy, dx)
+        # Improved Reference with Waypoint through bottleneck
+        # Waypoint: (10.0, 5.0) - Center of bottleneck
         
-        duration = (tau - 1) * dt
-        ref_v = dist / duration if duration > 0 else 0.0
+        # Define segments
+        # Start -> Waypoint -> Goal
+        waypoint = np.array([10.0, 5.0])
         
-        s = t_range / (tau - 1)
-        xref = xref.at[0, :].set(start[0] + s * dx)
-        xref = xref.at[1, :].set(start[1] + s * dy)
-        xref = xref.at[2, :].set(target_theta)
-        xref = xref.at[3, :].set(ref_v)
-        xref = xref.at[4, :].set(0.0)
+        # Segment 1: Start to Waypoint (First half of time)
+        t_mid = tau // 2
         
+        # Distance check for speed ref
+        dist_total = np.linalg.norm(np.array(goal) - np.array(start))
+        ref_speed = dist_total / ((tau-1)*dt)
+
+        # Seg 1 (0 to t_mid)
+        for t in range(t_mid):
+            s = t / t_mid
+            # Linear interp position
+            pos = np.array(start) + s * (waypoint - np.array(start))
+            xref = xref.at[0, t].set(pos[0])
+            xref = xref.at[1, t].set(pos[1])
+            # Angle
+            angle = np.arctan2(waypoint[1]-start[1], waypoint[0]-start[0])
+            xref = xref.at[2, t].set(angle)
+            xref = xref.at[3, t].set(ref_speed) # Approx const speed
+            
+        # Seg 2 (t_mid to tau)
+        for t in range(t_mid, tau):
+            s = (t - t_mid) / (tau - 1 - t_mid)
+            pos = waypoint + s * (np.array(goal) - waypoint)
+            xref = xref.at[0, t].set(pos[0])
+            xref = xref.at[1, t].set(pos[1])
+            angle = np.arctan2(goal[1]-waypoint[1], goal[0]-waypoint[0])
+            xref = xref.at[2, t].set(angle)
+            xref = xref.at[3, t].set(ref_speed)
+            
         p = Player(xref=xref, f=car_dynamics, g=g_dummy, tau=tau, Qi=Qi, Qtau=Qtau, Ri=Ri)
         players.append(p)
         
@@ -406,12 +427,9 @@ def main():
     for name, n_agents in DENSITIES.items():
         print(f"\nRunning Density: {name} ({n_agents} agents)")
         
-        # Create Game
-        # Increase horizon tau for congestion? 
-        # Congestion might slow them down, needing more time to clear.
-        # Let's increase tau to 40.
-        tau = 40
-        dt = 0.2
+        # Reduce tau to help solver, increase dt slightly
+        tau = 30
+        dt = 0.25
         
         game, config = create_bottleneck_game(n_agents, OBSTACLES_SETUP, tau=tau, dt=dt)
         
