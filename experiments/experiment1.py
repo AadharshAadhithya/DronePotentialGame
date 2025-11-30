@@ -33,7 +33,8 @@ OBSTACLES_SETUP = [] # Open road
 RI_MULTIPLIERS = {
     "Low": 0.1,
     "Baseline": 1.0,
-    "High": 10.0
+    "High": 10.0,
+    "Asymmetric": [10.0, 0.1] # P1 Polite, P2 Aggressive
 }
 
 # ==========================================
@@ -58,7 +59,6 @@ def create_custom_car_game(players_config, obstacles, ri_multiplier=1.0, tau=20,
     
     # BASELINE Ri
     Ri_base = np.diag(np.array([8.0, 4.0]))
-    Ri = Ri_base * ri_multiplier
     
     # Dynamics function
     def car_dynamics(x, u):
@@ -79,9 +79,19 @@ def create_custom_car_game(players_config, obstacles, ri_multiplier=1.0, tau=20,
         
     players = []
     
-    for cfg in players_config:
+    for i, cfg in enumerate(players_config):
         start = cfg['start']
         goal = cfg['goal']
+        
+        # Calculate Ri for this player
+        if isinstance(ri_multiplier, list):
+            # Asymmetric case
+            mult = ri_multiplier[i % len(ri_multiplier)]
+        else:
+            # Symmetric case
+            mult = ri_multiplier
+            
+        Ri = Ri_base * mult
         
         # Create reference trajectory
         xref = np.zeros((d, tau))
@@ -261,6 +271,17 @@ def calculate_metrics(x_sol, u_sol, game, dt=0.2):
     metrics['evasion_start_p1'] = evasion_times[0]
     metrics['evasion_start_p2'] = evasion_times[1]
     
+    # 5. Max Lateral Deviation (Yielding magnitude)
+    devs = []
+    for i in range(n):
+        start_y = PLAYERS_SETUP[i]['start'][1]
+        y_traj = x_sol[i*d + 1, :]
+        max_dev = np.max(np.abs(y_traj - start_y))
+        devs.append(max_dev)
+        
+    metrics['max_dev_p1'] = float(devs[0])
+    metrics['max_dev_p2'] = float(devs[1])
+    
     return metrics
 
 # ==========================================
@@ -374,7 +395,7 @@ def main():
     # Save CSV
     df = pd.DataFrame(results)
     # Reorder columns
-    cols = ['condition', 'ri_multiplier', 'min_distance', 'jerk', 'time_to_goal_p1', 'time_to_goal_p2', 'evasion_start_p1', 'evasion_start_p2']
+    cols = ['condition', 'ri_multiplier', 'min_distance', 'jerk', 'time_to_goal_p1', 'time_to_goal_p2', 'evasion_start_p1', 'evasion_start_p2', 'max_dev_p1', 'max_dev_p2']
     df = df[cols]
     df.to_csv(os.path.join(artifacts_dir, "experiment1.csv"), index=False)
     print(f"\nExperiment completed. Results saved to {artifacts_dir}/experiment1.csv")
