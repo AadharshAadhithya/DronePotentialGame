@@ -58,36 +58,38 @@ def create_drone_game(tau=30, dt=0.1):
         return np.array([0.0])
     
     # Reference trajectories
-    # Player 1: (0,0,0) -> (20,20,20)
-    # Distance approx 34.6. Time 2s. Speed ~ 17.
-    # Let's set v=10.
+    # Player 1: (-0.5,-0.5,0) -> (0.5,0.5,0)
+    # Distance approx 1.41. Time 2s.
     xref1 = np.zeros((d, tau))
     t_range = np.arange(tau, dtype=float)
     
     # Linear interpolation for position
-    xref1 = xref1.at[0, :].set(1.0 * t_range) # p: 0->20 (roughly)
-    xref1 = xref1.at[1, :].set(1.0 * t_range) # q: 0->20
-    xref1 = xref1.at[2, :].set(1.0 * t_range) # r: 0->20
+    # Start -0.5, End 0.5
+    # step = 1.0 / (tau-1) * t
+    steps = t_range / (tau-1)
+    xref1 = xref1.at[0, :].set(-0.5 + 1.0 * steps) # p
+    xref1 = xref1.at[1, :].set(-0.5 + 1.0 * steps) # q
+    xref1 = xref1.at[2, :].set(2.5 * steps)        # r: 0 -> 1
     
-    # Angles for diagonal movement (1,1,1) direction
+    # Angles for diagonal movement (1,1,0) direction
     # theta = 45 deg = pi/4
-    # phi = atan(1/sqrt(2)) approx 35 deg = 0.615 rad
+    # phi = 0
     xref1 = xref1.at[3, :].set(np.pi/4)       # theta
-    xref1 = xref1.at[4, :].set(0.615)         # phi
-    xref1 = xref1.at[5, :].set(10.0)          # v
+    xref1 = xref1.at[4, :].set(0.0)           # phi
+    xref1 = xref1.at[5, :].set(1.0)           # v (reduced speed)
     
-    # Player 2: (20,20,20) -> (0,0,0)
+    # Player 2: (0.5,0.5,0) -> (-0.5,-0.5,1)
     xref2 = np.zeros((d, tau))
-    xref2 = xref2.at[0, :].set(20.0 - 1.0 * t_range) # p
-    xref2 = xref2.at[1, :].set(20.0 - 1.0 * t_range) # q
-    xref2 = xref2.at[2, :].set(20.0 - 1.0 * t_range) # r
+    xref2 = xref2.at[0, :].set(0.5 - 1.0 * steps) # p
+    xref2 = xref2.at[1, :].set(0.5 - 1.0 * steps) # q
+    xref2 = xref2.at[2, :].set(2.5 * steps)       # r: 0 -> 1
     
-    # Angles for opposite diagonal (-1,-1,-1)
+    # Angles for opposite diagonal (-1,-1,0)
     # theta = -135 deg = -3pi/4
-    # phi = -atan(1/sqrt(2)) = -0.615
+    # phi = 0
     xref2 = xref2.at[3, :].set(-3*np.pi/4)    # theta
-    xref2 = xref2.at[4, :].set(-0.615)        # phi
-    xref2 = xref2.at[5, :].set(10.0)          # v
+    xref2 = xref2.at[4, :].set(0.0)           # phi
+    xref2 = xref2.at[5, :].set(1.0)           # v
     
     player1 = Player(xref=xref1, f=drone_dynamics, g=g_dummy, tau=tau, Qi=Qi, Qtau=Qtau, Ri=Ri)
     player2 = Player(xref=xref2, f=drone_dynamics, g=g_dummy, tau=tau, Qi=Qi, Qtau=Qtau, Ri=Ri)
@@ -95,12 +97,12 @@ def create_drone_game(tau=30, dt=0.1):
     players = [player1, player2]
     
     # Joint constraints
-    r_col = 3.0
+    r_col = 0.2 # Scaled down
     
     # Cylindrical Obstacle
-    # Infinite cylinder at (10, 10, z)
-    obs_xy = np.array([10.0, 10.0])
-    r_obs = 4.0
+    # Infinite cylinder at (0, 0, z)
+    obs_xy = np.array([0.0, 0.0])
+    r_obs = 0.2 # Scaled down
     
     # Control bounds
     u_bound = np.array([0.15, 0.75, 0.75]) 

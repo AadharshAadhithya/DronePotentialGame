@@ -138,7 +138,10 @@ def solve_game(game, seed=None, noise_scale=0.01):
     # options = {'disp': 5, 'max_iter': 500}
     options = {
         'disp': 5,
-        'hessian_approximation': 'limited-memory'
+        'hessian_approximation': 'limited-memory',
+        'tol': 1e-3,
+        'acceptable_tol': 1e-2,
+        'max_iter': 1000
     }
     
     # Note: we are not providing Hessian, so IPOPT will approximate it (L-BFGS usually or internal approximation)
@@ -170,17 +173,17 @@ if __name__ == "__main__":
         raise ValueError(f"Unknown game type: {GAME_TYPE}")
     
     # Try multiple random seeds (just one for now)
-    seeds = [0, 1, 2, 42, 100, 234, 6578, 975]
+    seeds = [0]
     
     import matplotlib.pyplot as plt
     import math
     from mpl_toolkits.mplot3d import Axes3D # For 3D plotting
     
     num_plots = len(seeds)
-    cols = 3
-    rows = math.ceil(num_plots / cols)
+    cols = 1
+    rows = 1
     
-    fig = plt.figure(figsize=(5*cols, 4*rows), constrained_layout=True)
+    fig = plt.figure(figsize=(10, 8))
     
     # Extract reference for plotting (same for all)
     xref = game.xref

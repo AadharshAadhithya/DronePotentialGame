@@ -128,6 +128,131 @@ def create_car_game(tau=20, dt=0.1):
     
     return game
 
+def create_general_car_game(players_config, obstacles, tau=20, dt=0.1):
+    """
+    Creates a car game with variable number of players and obstacles.
+    
+    Args:
+        players_config: List of dicts, each with 'start': (x,y), 'goal': (x,y)
+        obstacles: List of dicts, each with 'x': float, 'y': float, 'r': float
+        tau: Time horizon
+        dt: Time step
+    """
+    # Dimensions
+    d = 5 # x = [p, q, theta, v, omega]
+    m = 2 # u = [delta_v, delta_omega]
+    
+    n_players = len(players_config)
+    
+    # Cost matrices
+    Qhat = np.diag(np.array([50.0, 10.0, 5.0, 5.0, 2.0]))
+    Qi = 0.6 * Qhat
+    Qtau = 100 * Qhat
+    Ri = np.diag(np.array([8.0, 4.0]))
+    
+    # Dynamics function
+    def car_dynamics(x, u):
+        p, q, theta, v, omega = x
+        delta_v, delta_omega = u
+        
+        p_next = p + dt * v * np.cos(theta)
+        q_next = q + dt * v * np.sin(theta)
+        theta_next = theta + dt * omega
+        v_next = v + delta_v
+        omega_next = omega + delta_omega
+        
+        return np.array([p_next, q_next, theta_next, v_next, omega_next])
+    
+    # Individual constraints
+    def g_dummy(x, u):
+        return np.array([0.0])
+        
+    players = []
+    
+    for cfg in players_config:
+        start = cfg['start']
+        goal = cfg['goal']
+        
+        # Create reference trajectory
+        xref = np.zeros((d, tau))
+        t_range = np.arange(tau, dtype=float)
+        
+        # Linear interpolation for position
+        dx = goal[0] - start[0]
+        dy = goal[1] - start[1]
+        dist = np.sqrt(dx**2 + dy**2)
+        
+        # Angle
+        target_theta = np.arctan2(dy, dx)
+        
+        # Reference Speed
+        # Total time = (tau-1) * dt? 
+        # Steps 0 to tau-1. Time 0 to (tau-1)*dt.
+        # distance covered in (tau-1)*dt time.
+        duration = (tau - 1) * dt
+        ref_v = dist / duration if duration > 0 else 0.0
+        
+        # Steps 0 to 1
+        s = t_range / (tau - 1)
+        
+        xref = xref.at[0, :].set(start[0] + s * dx)
+        xref = xref.at[1, :].set(start[1] + s * dy)
+        xref = xref.at[2, :].set(target_theta)
+        xref = xref.at[3, :].set(ref_v) # Target speed matched to distance/time
+        xref = xref.at[4, :].set(0.0)
+        
+        p = Player(xref=xref, f=car_dynamics, g=g_dummy, tau=tau, Qi=Qi, Qtau=Qtau, Ri=Ri)
+        players.append(p)
+        
+    # Joint constraints
+    r_col = 1.0
+    u_bound = np.array([0.15, 0.75])
+    
+    def g_constraints(x_joint, u_joint):
+        # x_joint: (N*d,)
+        # u_joint: (N*m,)
+        
+        constraints = []
+        
+        # 1. Collision avoidance between players
+        for i in range(n_players):
+            xi = x_joint[i*d:(i+1)*d]
+            for j in range(i+1, n_players):
+                xj = x_joint[j*d:(j+1)*d]
+                dist = np.sqrt((xi[0] - xj[0])**2 + (xi[1] - xj[1])**2)
+                constraints.append(-dist + r_col)
+        
+        # 2. Obstacle avoidance
+        for i in range(n_players):
+            xi = x_joint[i*d:(i+1)*d]
+            for obs in obstacles:
+                dist = np.sqrt((xi[0] - obs['x'])**2 + (xi[1] - obs['y'])**2)
+                constraints.append(-dist + obs['r'])
+                
+        # 3. Positive velocity
+        for i in range(n_players):
+            xi = x_joint[i*d:(i+1)*d]
+            constraints.append(-xi[3])
+            
+        # 4. Control bounds
+        for i in range(n_players):
+            ui = u_joint[i*m:(i+1)*m]
+            # ui - ub <= 0
+            constraints.extend(ui - u_bound)
+            # -ui - ub <= 0
+            constraints.extend(-ui - u_bound)
+            
+        if not constraints:
+            return np.array([0.0]) # Should not happen usually
+            
+        return np.array(constraints) # JAX will convert list to array
+        
+    game = PotientialGame(players=players, g=g_constraints)
+    game.type = 'car'
+    game.obstacles_list = obstacles # Store for plotting
+    
+    return game
+
 if __name__ == "__main__":
     game = create_car_game()
     print("Car game created successfully!")
