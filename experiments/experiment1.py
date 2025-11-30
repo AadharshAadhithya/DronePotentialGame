@@ -232,6 +232,35 @@ def calculate_metrics(x_sol, u_sol, game, dt=0.2):
     if metrics['time_to_goal_p2'] == float('inf'):
          metrics['time_to_goal_p2'] = tau * dt
          
+    # 4. Evasion Start Time (Time of First Deviation)
+    # Check when lateral deviation > threshold (e.g. 0.1m)
+    # Players move along y=5.0 mostly.
+    deviation_threshold = 0.1
+    evasion_times = []
+    
+    for i in range(n):
+        # Assuming straight line motion along x-axis at y=start_y is the reference "lazy" path
+        # However, they are head-on. P1: (2,5)->(18,5). P2: (18,5)->(2,5).
+        # So ideal path is y=5.0.
+        start_y = PLAYERS_SETUP[i]['start'][1]
+        
+        # y trajectory
+        y_traj = x_sol[i*d + 1, :] # q component
+        
+        # Deviation from start_y
+        deviation = np.abs(y_traj - start_y)
+        
+        # First index where deviation > threshold
+        dev_indices = np.where(deviation > deviation_threshold)[0]
+        
+        if len(dev_indices) > 0:
+            evasion_times.append(dev_indices[0] * dt)
+        else:
+            evasion_times.append(float('nan')) # Never deviated enough?
+            
+    metrics['evasion_start_p1'] = evasion_times[0]
+    metrics['evasion_start_p2'] = evasion_times[1]
+    
     return metrics
 
 # ==========================================
@@ -345,7 +374,7 @@ def main():
     # Save CSV
     df = pd.DataFrame(results)
     # Reorder columns
-    cols = ['condition', 'ri_multiplier', 'min_distance', 'jerk', 'time_to_goal_p1', 'time_to_goal_p2']
+    cols = ['condition', 'ri_multiplier', 'min_distance', 'jerk', 'time_to_goal_p1', 'time_to_goal_p2', 'evasion_start_p1', 'evasion_start_p2']
     df = df[cols]
     df.to_csv(os.path.join(artifacts_dir, "experiment1.csv"), index=False)
     print(f"\nExperiment completed. Results saved to {artifacts_dir}/experiment1.csv")
