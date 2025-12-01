@@ -69,6 +69,26 @@ SCENARIOS = {
         "gap": 0.8, 
         "n_agents": 4,
         "mode": "Blocked_Ambulance"
+    },
+    "Very_Cramped_0.6": {
+        "gap": 0.6, 
+        "n_agents": 4,
+        "mode": "Uniform"
+    },
+    "Very_Cramped_0.4": {
+        "gap": 0.4, 
+        "n_agents": 4,
+        "mode": "Uniform"
+    },
+    "Blocked_Ambulance_0.6": {
+        "gap": 0.6, 
+        "n_agents": 4,
+        "mode": "Blocked_Ambulance"
+    },
+    "Blocked_Ambulance_0.4": {
+        "gap": 0.4, 
+        "n_agents": 4,
+        "mode": "Blocked_Ambulance"
     }
 }
 
