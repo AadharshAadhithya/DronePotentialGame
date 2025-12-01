@@ -19,18 +19,25 @@ from player import Player, PotientialGame
 # ==========================================
 
 # Map Dimensions (for plotting)
-# Adjusted for the closer start positions (-0.5 to 0.5)
 MAP_X_LIMIT = 1.0
 MAP_Y_LIMIT = 1.0
-MAP_Z_LIMIT = 3.0
-FIXED_HEIGHT = 2.0
+MAP_Z_LIMIT = 2.0
+FIXED_HEIGHT = 0.5
 
-# Scenario: Head-on collision (Chicken Game)
-# Player 1 moves Left->Right (-x to +x), Player 2 moves Right->Left (+x to -x)
-# Start and Goal positions updated as requested: -0.5 and 0.5 on x-axis.
+# Scenario: 4 Drones Swapping Places
+# Drones start at (0.5,0), (-0.5,0), (0,0.5), (0,-0.5) and go to opposite side
+# Adjusted slightly to match user request "x=0.5, x=-0.5, y=0.5, y=-0.5"
+# Assuming they are on axes.
+# 1. (+0.5, 0) -> (-0.5, 0)
+# 2. (-0.5, 0) -> (+0.5, 0)
+# 3. (0, +0.5) -> (0, -0.5)
+# 4. (0, -0.5) -> (0, +0.5)
+
 PLAYERS_SETUP = [
-    {'start': (-0.5, 0.0, FIXED_HEIGHT), 'goal': (0.5, 0.0, FIXED_HEIGHT), 'color': 'blue'},
-    {'start': (0.5, 0.0, FIXED_HEIGHT), 'goal': (-0.5, 0.0, FIXED_HEIGHT), 'color': 'red'}
+    {'start': (0.5, 0.0, FIXED_HEIGHT), 'goal': (-0.5, 0.0, FIXED_HEIGHT), 'color': 'blue'},
+    {'start': (-0.5, 0.0, FIXED_HEIGHT), 'goal': (0.5, 0.0, FIXED_HEIGHT), 'color': 'red'},
+    {'start': (0.0, 0.5, FIXED_HEIGHT), 'goal': (0.0, -0.5, FIXED_HEIGHT), 'color': 'green'},
+    {'start': (0.0, -0.5, FIXED_HEIGHT), 'goal': (0.0, 0.5, FIXED_HEIGHT), 'color': 'purple'}
 ]
 
 OBSTACLES_SETUP = [] # Open road
@@ -39,7 +46,7 @@ RI_MULTIPLIERS = {
     "Low": 0.1,
     "Baseline": 1.0,
     "High": 10.0,
-    "Asymmetric": [10.0, 0.1] # P1 Polite, P2 Aggressive
+    "Asymmetric": [10.0, 0.1, 1.0, 1.0] # Mixed behavior
 }
 
 # ==========================================
@@ -58,9 +65,9 @@ def create_custom_drone_game(players_config, obstacles, ri_multiplier=1.0, tau=4
     
     # Cost matrices
     diag_entries = np.array([50.0, 50.0, 50.0,  # pos
-                             10.0, 50.0,        # angles (increased phi/yaw cost if needed, but mainly rates below)
+                             10.0, 50.0,        # angles (high phi cost)
                              5.0,               # v
-                             20.0, 2.0])        # rates: omega_theta (yaw rate) increased 5.0 -> 20.0
+                             20.0, 2.0])        # rates: high yaw rate cost
     Qhat = np.diag(diag_entries)
     Qi   = 0.6 * Qhat
     Qtau = 100 * Qhat
@@ -116,9 +123,9 @@ def create_custom_drone_game(players_config, obstacles, ri_multiplier=1.0, tau=4
         dz = goal[2] - start[2]
         dist = np.sqrt(dx**2 + dy**2 + dz**2)
         
-        # Angles (simplified: pointing to goal in yaw, flat pitch)
+        # Angles: Align yaw (theta) with direction of travel
         target_theta = np.arctan2(dy, dx)
-        target_phi = np.arctan2(dz, np.sqrt(dx**2 + dy**2)) 
+        target_phi = 0.0   # Force 0 pitch ref
         
         # Reference Speed
         duration = (tau - 1) * dt
@@ -192,12 +199,18 @@ def calculate_metrics(x_sol, u_sol, game, dt=0.1):
     
     metrics = {}
     
-    # 1. Min Distance between players
-    x1 = x_sol[0:d, :]
-    x2 = x_sol[d:2*d, :]
-    # 3D distance
-    dists = np.sqrt((x1[0] - x2[0])**2 + (x1[1] - x2[1])**2 + (x1[2] - x2[2])**2)
-    metrics['min_distance'] = float(np.min(dists))
+    # 1. Min Distance between ANY pair of players
+    min_dist_global = float('inf')
+    for i in range(n):
+        xi = x_sol[i*d:(i+1)*d, :]
+        for j in range(i+1, n):
+            xj = x_sol[j*d:(j+1)*d, :]
+            dists = np.sqrt((xi[0]-xj[0])**2 + (xi[1]-xj[1])**2 + (xi[2]-xj[2])**2)
+            min_dist_pair = float(np.min(dists))
+            if min_dist_pair < min_dist_global:
+                min_dist_global = min_dist_pair
+                
+    metrics['min_distance'] = min_dist_global
     
     # 2. Jerk (Smoothness) -> Mean change in control input
     total_jerk = 0.0
@@ -210,73 +223,57 @@ def calculate_metrics(x_sol, u_sol, game, dt=0.1):
         
     metrics['jerk'] = float(total_jerk / n)
     
-    # 3. Time to Goal
-    goal_radius = 0.2 # Reduced radius for small scale
-    times_to_goal = []
+    # 3. Time to Goal (Avg)
+    goal_radius = 0.2
+    total_time = 0.0
     
     for i in range(n):
         goal = PLAYERS_SETUP[i]['goal']
-        
-        p_curr = x_sol[i*d : i*d+3, :] # x, y, z
+        p_curr = x_sol[i*d : i*d+3, :]
         dist_to_goal = np.sqrt((p_curr[0] - goal[0])**2 + (p_curr[1] - goal[1])**2 + (p_curr[2] - goal[2])**2)
-        
         reached_indices = np.where(dist_to_goal < goal_radius)[0]
         
         if len(reached_indices) > 0:
-            t_goal = reached_indices[0] * dt
-            times_to_goal.append(t_goal)
+            total_time += reached_indices[0] * dt
         else:
-            times_to_goal.append(float('inf'))
+            total_time += tau * dt
             
-    metrics['time_to_goal_p1'] = times_to_goal[0]
-    metrics['time_to_goal_p2'] = times_to_goal[1]
-    
-    if metrics['time_to_goal_p1'] == float('inf'):
-         metrics['time_to_goal_p1'] = tau * dt
-    if metrics['time_to_goal_p2'] == float('inf'):
-         metrics['time_to_goal_p2'] = tau * dt
+    metrics['avg_time_to_goal'] = float(total_time / n)
          
-    # 4. Evasion Start Time (Deviation from straight line)
-    # Straight line is y=0, z=FIXED_HEIGHT
-    # We measure perpendicular deviation (sqrt(y^2 + (z-ref)^2))
-    deviation_threshold = 0.05 
-    evasion_times = []
+    # 4. Max Deviation from Straight Line (3D)
+    # Each player moves from start to goal. 
+    # We project position onto vector perpendicular to start->goal vector.
+    max_dev_global = 0.0
     
     for i in range(n):
-        start_z = PLAYERS_SETUP[i]['start'][2]
-        start_y = PLAYERS_SETUP[i]['start'][1]
+        start = np.array(PLAYERS_SETUP[i]['start'])
+        goal = np.array(PLAYERS_SETUP[i]['goal'])
         
-        y_traj = x_sol[i*d + 1, :] 
-        z_traj = x_sol[i*d + 2, :]
+        # Vector along path
+        path_vec = goal - start
+        path_len = np.linalg.norm(path_vec)
+        if path_len < 1e-6: continue
+        path_dir = path_vec / path_len
         
-        # Combined deviation from the flight path axis
-        deviation = np.sqrt((y_traj - start_y)**2 + (z_traj - start_z)**2)
+        # Trajectory
+        p_traj = x_sol[i*d : i*d+3, :] # (3, tau)
         
-        dev_indices = np.where(deviation > deviation_threshold)[0]
+        # Vector from start to current pos
+        rel_pos = p_traj - start.reshape(3,1) # (3, tau)
         
-        if len(dev_indices) > 0:
-            evasion_times.append(dev_indices[0] * dt)
-        else:
-            evasion_times.append(float('nan'))
+        # Projection onto path direction
+        proj_len = np.dot(path_dir, rel_pos) # (tau,)
+        proj_vec = np.outer(path_dir, proj_len) # (3, tau)
+        
+        # Perpendicular component
+        perp_vec = rel_pos - proj_vec
+        perp_dist = np.linalg.norm(perp_vec, axis=0) # (tau,)
+        
+        max_dev_i = np.max(perp_dist)
+        if max_dev_i > max_dev_global:
+            max_dev_global = max_dev_i
             
-    metrics['evasion_start_p1'] = evasion_times[0]
-    metrics['evasion_start_p2'] = evasion_times[1]
-    
-    # 5. Max Deviation (3D)
-    devs = []
-    for i in range(n):
-        start_z = PLAYERS_SETUP[i]['start'][2]
-        start_y = PLAYERS_SETUP[i]['start'][1]
-        
-        y_traj = x_sol[i*d + 1, :]
-        z_traj = x_sol[i*d + 2, :]
-        
-        deviation = np.sqrt((y_traj - start_y)**2 + (z_traj - start_z)**2)
-        max_dev = np.max(deviation)
-        devs.append(max_dev)
-        
-    metrics['max_dev_p1'] = float(devs[0])
-    metrics['max_dev_p2'] = float(devs[1])
+    metrics['max_deviation'] = float(max_dev_global)
     
     return metrics
 
@@ -298,12 +295,12 @@ def plot_map_setup(filename):
         color = p['color']
         
         # Start
-        ax.scatter(start[0], start[1], start[2], color=color, marker='o', s=100, label=f"Start {color}")
-        ax.text(start[0], start[1], start[2], "S", color=color)
+        ax.scatter(start[0], start[1], start[2], color=color, marker='o', s=100, label=f"Start {i+1}")
+        ax.text(start[0], start[1], start[2], f"S{i+1}", color=color)
         
         # Goal
-        ax.scatter(goal[0], goal[1], goal[2], color=color, marker='x', s=100, label=f"Goal {color}")
-        ax.text(goal[0], goal[1], goal[2], "G", color=color)
+        ax.scatter(goal[0], goal[1], goal[2], color=color, marker='x', s=100, label=f"Goal {i+1}")
+        ax.text(goal[0], goal[1], goal[2], f"G{i+1}", color=color)
         
         # Ideal path
         ax.plot([start[0], goal[0]], [start[1], goal[1]], [start[2], goal[2]], '--', color=color, alpha=0.3)
@@ -311,7 +308,7 @@ def plot_map_setup(filename):
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
-    ax.set_title("Experiment 1 (Drone) Setup: Head-on Collision")
+    ax.set_title("Experiment 1 (4 Drones) Setup")
     ax.legend()
     
     plt.savefig(filename)
@@ -344,8 +341,8 @@ def save_results(name, game, x_sol, u_sol, dt, output_dir):
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
-    ax.set_title(f"Trajectories - {name} (Drone)")
-    plt.savefig(os.path.join(output_dir, f"experiment1_drone_traj_{name}.png"))
+    ax.set_title(f"Trajectories - {name} (4 Drones)")
+    plt.savefig(os.path.join(output_dir, f"experiment1_4drone_traj_{name}.png"))
     plt.close()
     
     # 2. Animation
@@ -370,12 +367,12 @@ def save_results(name, game, x_sol, u_sol, dt, output_dir):
         return lines
         
     ani = FuncAnimation(fig, update, frames=tau, blit=True)
-    ani.save(os.path.join(output_dir, f"experiment1_drone_{name}.gif"), writer='pillow', fps=10)
+    ani.save(os.path.join(output_dir, f"experiment1_4drone_{name}.gif"), writer='pillow', fps=10)
     plt.close()
 
 def save_detailed_csvs(name, x_sol, u_sol, dt, output_dir):
     # Format: drone_id,t,x,y,z,yaw
-    n = 2 
+    n = 4
     d = 8
     m = 3
     tau = x_sol.shape[1]
@@ -404,14 +401,12 @@ def save_detailed_csvs(name, x_sol, u_sol, dt, output_dir):
             
     df_x = pd.DataFrame(x_data)
     
-    # Use specific filenames requested, appending condition for non-Baseline to avoid overwrite
     if name == "Baseline":
-        df_x.to_csv(os.path.join(output_dir, "drone_exp1_x.csv"), index=False, float_format='%.4f')
+        df_x.to_csv(os.path.join(output_dir, "drone_exp1_4d_x.csv"), index=False, float_format='%.4f')
     else:
-        df_x.to_csv(os.path.join(output_dir, f"drone_exp1_x_{name}.csv"), index=False, float_format='%.4f')
+        df_x.to_csv(os.path.join(output_dir, f"drone_exp1_4d_x_{name}.csv"), index=False, float_format='%.4f')
 
     # Prepare U CSV
-    # Format: drone_id,t,u1,u2,u3
     u_data = []
     for i in range(n):
         drone_id = f"cf{i+1}"
@@ -433,60 +428,79 @@ def save_detailed_csvs(name, x_sol, u_sol, dt, output_dir):
             
     df_u = pd.DataFrame(u_data)
     
-    # Assuming "drone_exp2_u.csv" in prompt was typo for "drone_exp1_u.csv"
     if name == "Baseline":
-        df_u.to_csv(os.path.join(output_dir, "drone_exp1_u.csv"), index=False, float_format='%.4f')
+        df_u.to_csv(os.path.join(output_dir, "drone_exp1_4d_u.csv"), index=False, float_format='%.4f')
     else:
-        df_u.to_csv(os.path.join(output_dir, f"drone_exp1_u_{name}.csv"), index=False, float_format='%.4f')
+        df_u.to_csv(os.path.join(output_dir, f"drone_exp1_4d_u_{name}.csv"), index=False, float_format='%.4f')
 
 # ==========================================
 # MAIN RUNNER
 # ==========================================
 
+def run_single_scenario(name, multiplier, artifacts_dir):
+    print(f"\nRunning Experiment: {name} (Ri x {multiplier})")
+    
+    # Create Game
+    dt_val = 0.1
+    game = create_custom_drone_game(PLAYERS_SETUP, OBSTACLES_SETUP, ri_multiplier=multiplier, tau=40, dt=dt_val)
+    
+    # Solve
+    seed = 42
+    x_sol, u_sol, res = solve_game(game, seed=seed)
+    
+    if not res.success and "acceptable" not in str(res.message).lower():
+        print(f"Warning: Solver did not converge for {name}")
+    
+    # Metrics
+    met = calculate_metrics(x_sol, u_sol, game, dt=dt_val)
+    met['condition'] = name
+    met['ri_multiplier'] = multiplier
+    
+    print(f"Metrics: {met}")
+    
+    # Save Plots
+    save_results(name, game, x_sol, u_sol, dt=dt_val, output_dir=artifacts_dir)
+    
+    # Save Detailed CSVs
+    save_detailed_csvs(name, x_sol, u_sol, dt=dt_val, output_dir=artifacts_dir)
+    
+    # Save partial metrics for parallel execution
+    res_df = pd.DataFrame([met])
+    res_file = os.path.join(artifacts_dir, f"metrics_{name}.csv")
+    res_df.to_csv(res_file, index=False)
+    
+    return met
+
 def main():
     # Ensure artifacts directory exists
-    artifacts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "artifacts", "experiment1_drone")
+    artifacts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "artifacts", "experiment1_4drone")
     os.makedirs(artifacts_dir, exist_ok=True)
 
     # 1. Plot Map
-    plot_map_setup(os.path.join(artifacts_dir, "experiment1_drone_map.png"))
+    plot_map_setup(os.path.join(artifacts_dir, "experiment1_4drone_map.png"))
     
+    # Check for command line argument
+    if len(sys.argv) > 1:
+        scenario_name = sys.argv[1]
+        if scenario_name in RI_MULTIPLIERS:
+            run_single_scenario(scenario_name, RI_MULTIPLIERS[scenario_name], artifacts_dir)
+            return
+        else:
+             print(f"Scenario {scenario_name} not found. Running all.")
+
     results = []
     
     for name, multiplier in RI_MULTIPLIERS.items():
-        print(f"\nRunning Experiment: {name} (Ri x {multiplier})")
-        
-        # Create Game
-        dt_val = 0.1
-        game = create_custom_drone_game(PLAYERS_SETUP, OBSTACLES_SETUP, ri_multiplier=multiplier, tau=40, dt=dt_val)
-        
-        # Solve
-        seed = 42
-        x_sol, u_sol, res = solve_game(game, seed=seed)
-        
-        if not res.success and "acceptable" not in str(res.message).lower():
-            print(f"Warning: Solver did not converge for {name}")
-        
-        # Metrics
-        met = calculate_metrics(x_sol, u_sol, game, dt=dt_val)
-        met['condition'] = name
-        met['ri_multiplier'] = multiplier
+        met = run_single_scenario(name, multiplier, artifacts_dir)
         results.append(met)
-        
-        print(f"Metrics: {met}")
-        
-        # Save Plots
-        save_results(name, game, x_sol, u_sol, dt=dt_val, output_dir=artifacts_dir)
-        
-        # Save Detailed CSVs
-        save_detailed_csvs(name, x_sol, u_sol, dt=dt_val, output_dir=artifacts_dir)
         
     # Save CSV
     df = pd.DataFrame(results)
-    cols = ['condition', 'ri_multiplier', 'min_distance', 'jerk', 'time_to_goal_p1', 'time_to_goal_p2', 'evasion_start_p1', 'evasion_start_p2', 'max_dev_p1', 'max_dev_p2']
+    cols = ['condition', 'ri_multiplier', 'min_distance', 'jerk', 'avg_time_to_goal', 'max_deviation']
     df = df[cols]
-    df.to_csv(os.path.join(artifacts_dir, "experiment1_drone.csv"), index=False)
-    print(f"\nExperiment completed. Results saved to {artifacts_dir}/experiment1_drone.csv")
+    df.to_csv(os.path.join(artifacts_dir, "experiment1_4drone.csv"), index=False)
+    print(f"\nExperiment completed. Results saved to {artifacts_dir}/experiment1_4drone.csv")
 
 if __name__ == "__main__":
     main()
+
