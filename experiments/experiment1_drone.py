@@ -270,7 +270,7 @@ def calculate_metrics(x_sol, u_sol, game, dt=0.1):
     return metrics
 
 # ==========================================
-# PLOTTING
+# PLOTTING AND SAVING
 # ==========================================
 
 def plot_map_setup(filename):
@@ -362,6 +362,72 @@ def save_results(name, game, x_sol, u_sol, dt, output_dir):
     ani.save(os.path.join(output_dir, f"experiment1_drone_{name}.gif"), writer='pillow', fps=10)
     plt.close()
 
+def save_detailed_csvs(name, x_sol, u_sol, dt, output_dir):
+    # Format: drone_id,t,x,y,z,yaw
+    n = 2 
+    d = 8
+    m = 3
+    tau = x_sol.shape[1]
+    
+    # Prepare X CSV
+    x_data = []
+    for i in range(n):
+        drone_id = f"cf{i+1}"
+        for t in range(tau):
+            time = t * dt
+            # State
+            idx = i * d
+            px = x_sol[idx + 0, t]
+            py = x_sol[idx + 1, t]
+            pz = x_sol[idx + 2, t]
+            yaw = x_sol[idx + 3, t]
+            
+            x_data.append({
+                'drone_id': drone_id,
+                't': time,
+                'x': px,
+                'y': py,
+                'z': pz,
+                'yaw': yaw
+            })
+            
+    df_x = pd.DataFrame(x_data)
+    
+    # Use specific filenames requested, appending condition for non-Baseline to avoid overwrite
+    if name == "Baseline":
+        df_x.to_csv(os.path.join(output_dir, "drone_exp1_x.csv"), index=False, float_format='%.4f')
+    else:
+        df_x.to_csv(os.path.join(output_dir, f"drone_exp1_x_{name}.csv"), index=False, float_format='%.4f')
+
+    # Prepare U CSV
+    # Format: drone_id,t,u1,u2,u3
+    u_data = []
+    for i in range(n):
+        drone_id = f"cf{i+1}"
+        for t in range(tau):
+            time = t * dt
+            # Control
+            idx = i * m
+            u1 = u_sol[idx + 0, t]
+            u2 = u_sol[idx + 1, t]
+            u3 = u_sol[idx + 2, t]
+            
+            u_data.append({
+                'drone_id': drone_id,
+                't': time,
+                'u1': u1,
+                'u2': u2,
+                'u3': u3
+            })
+            
+    df_u = pd.DataFrame(u_data)
+    
+    # Assuming "drone_exp2_u.csv" in prompt was typo for "drone_exp1_u.csv"
+    if name == "Baseline":
+        df_u.to_csv(os.path.join(output_dir, "drone_exp1_u.csv"), index=False, float_format='%.4f')
+    else:
+        df_u.to_csv(os.path.join(output_dir, f"drone_exp1_u_{name}.csv"), index=False, float_format='%.4f')
+
 # ==========================================
 # MAIN RUNNER
 # ==========================================
@@ -400,6 +466,9 @@ def main():
         
         # Save Plots
         save_results(name, game, x_sol, u_sol, dt=dt_val, output_dir=artifacts_dir)
+        
+        # Save Detailed CSVs
+        save_detailed_csvs(name, x_sol, u_sol, dt=dt_val, output_dir=artifacts_dir)
         
     # Save CSV
     df = pd.DataFrame(results)
