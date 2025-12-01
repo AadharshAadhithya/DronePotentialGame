@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from solve import solve_game
 from player import Player, PotientialGame
+from pf import get_coarse_estimates, dbscan_from_dist_matrix
 
 # ==========================================
 # EXPERIMENT 2 SETUP: The Bottleneck Capacity
@@ -24,12 +25,6 @@ CORRIDOR_Y_MIN = 4.0
 CORRIDOR_Y_MAX = 6.0
 
 # Define the bottleneck obstacles
-# A narrow corridor in the middle: width = 2.0 (y=4 to y=6)
-# Walls above y=6 and below y=4 from x=8 to x=12?
-# Or just continuous walls with a gap?
-# Let's creating a "funnel" or just a simple narrow passage.
-# Simple narrow passage from x=5 to x=15.
-
 def create_bottleneck_obstacles():
     obstacles = []
     # Two massive obstacles to create a gap between y=3.5 and y=6.5 at x=10
@@ -45,15 +40,12 @@ OBSTACLES_SETUP = create_bottleneck_obstacles()
 
 # Variable: Number of Agents (Density)
 # All agents start on left (x=2) and want to go right (x=18)
-# Random y start within safe zone (y=4-6) or slightly spread out?
-# Let's spread them out at x=2, y=[3, 7] but they have to squeeze through y=[4,6]
-
 DENSITIES = {
     "2_Agents": 2,
     "3_Agents": 3,
     "4_Agents": 4,
     "Ambulance": 4,
-    "Blocked_Ambulance": 4 # 1 slow, 1 fast behind, 2 traffic
+    "Blocked_Ambulance": 4 
 }
 
 def get_players_config_funnel(n_agents, mode="Uniform"):
@@ -404,7 +396,83 @@ def plot_map(obstacles, filename):
     plt.savefig(filename)
     plt.close()
 
-def save_results(name, game, x_sol, players_config, output_dir):
+def save_raw_particles(name, game, trajs_np, output_dir):
+    # trajs_np shape: (num_particles, tau, n_aug)
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.set_xlim(0, MAP_X_LIMIT)
+    ax.set_ylim(0, MAP_Y_LIMIT)
+    ax.set_aspect('equal')
+    
+    # Obstacles
+    for obs in game.obstacles_list:
+        c = plt.Circle((obs['x'], obs['y']), obs['r'], color='black', alpha=0.3, linestyle=':')
+        ax.add_patch(c)
+
+    d = game.Qtau.shape[0] // game.n
+    n_players = game.n
+    colors = ['b', 'r', 'g', 'm', 'c']
+    
+    # Plot particles
+    for i in range(len(trajs_np)):
+        traj = trajs_np[i]
+        # x part is first N*d cols
+        x_traj = traj[:, :game.Qtau.shape[0]].T # (full_d, tau)
+        
+        for p in range(n_players):
+            xi = x_traj[p*d:(p+1)*d, :]
+            c = colors[p % len(colors)]
+            ax.plot(xi[0, :], xi[1, :], color=c, alpha=0.05)
+
+    ax.set_title(f"Raw Particles: {name}")
+    plt.savefig(os.path.join(output_dir, f"experiment2_pf_{name}_raw_particles.png"))
+    plt.close()
+
+def save_mode_summary(name, game, modes_data, players_config, output_dir):
+    # modes_data list of (x_sol, u_sol, cost, status)
+    if not modes_data: return
+    
+    num_plots = len(modes_data)
+    cols = min(num_plots, 2) # Max 2 cols
+    rows = (num_plots + cols - 1) // cols
+    
+    fig, axes = plt.subplots(rows, cols, figsize=(6 * cols, 4 * rows))
+    if num_plots == 1:
+        axes = [axes]
+    else:
+        axes = axes.flatten()
+        
+    for i, data in enumerate(modes_data):
+        x_sol, u_sol, cost, status = data
+        ax = axes[i] if i < len(axes) else None
+        if ax is None: continue
+        
+        ax.set_xlim(0, MAP_X_LIMIT)
+        ax.set_ylim(0, MAP_Y_LIMIT)
+        ax.set_aspect('equal')
+        ax.grid(True)
+        
+        # Obstacles
+        for obs in game.obstacles_list:
+            c = plt.Circle((obs['x'], obs['y']), obs['r'], color='black', alpha=0.2)
+            ax.add_patch(c)
+            
+        # Trajectories
+        n = game.n
+        d = 5
+        for p in range(n):
+            color = players_config[p]['color']
+            traj = x_sol[p*d : p*d+2, :]
+            ax.plot(traj[0, :], traj[1, :], '.-', color=color, alpha=0.8)
+            ax.plot(traj[0, 0], traj[1, 0], 'o', color=color)
+            ax.plot(traj[0, -1], traj[1, -1], 'x', color=color)
+
+        ax.set_title(f"Mode {i+1}\n{status}, Cost: {cost:.2f}")
+        
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, f"experiment2_pf_{name}_modes_summary.png"))
+    plt.close()
+
+def save_results(name, mode_idx, game, x_sol, players_config, output_dir):
     n = game.n
     d = 5
     tau = game.tau
@@ -426,8 +494,8 @@ def save_results(name, game, x_sol, players_config, output_dir):
         traj = x_sol[i*d : i*d+2, :]
         ax.plot(traj[0, :], traj[1, :], '.-', color=color, label=f"P{i+1}", alpha=0.7)
         
-    ax.set_title(f"Flow: {name}")
-    plt.savefig(os.path.join(output_dir, f"experiment2_traj_{name}.png"))
+    ax.set_title(f"Flow: {name} (Mode {mode_idx})")
+    plt.savefig(os.path.join(output_dir, f"experiment2_pf_{name}_mode{mode_idx}_traj.png"))
     plt.close()
     
     # 2. Animation
@@ -451,7 +519,7 @@ def save_results(name, game, x_sol, players_config, output_dir):
         return lines
         
     ani = FuncAnimation(fig, update, frames=tau, blit=True)
-    ani.save(os.path.join(output_dir, f"experiment2_{name}.gif"), writer='pillow', fps=10)
+    ani.save(os.path.join(output_dir, f"experiment2_pf_{name}_mode{mode_idx}.gif"), writer='pillow', fps=10)
     plt.close()
 
 # ==========================================
@@ -460,7 +528,7 @@ def save_results(name, game, x_sol, players_config, output_dir):
 
 def main():
     # Setup Artifacts
-    artifacts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "artifacts", "experiment2")
+    artifacts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "artifacts", "experiment2_pf")
     os.makedirs(artifacts_dir, exist_ok=True)
     
     # Plot Map
@@ -469,7 +537,7 @@ def main():
     results = []
     
     for name, n_agents in DENSITIES.items():
-        print(f"\nRunning Density: {name} ({n_agents} agents)")
+        print(f"\nRunning Density: {name} ({n_agents} agents) with PF...")
         
         # Determine Mode
         mode = name
@@ -486,31 +554,107 @@ def main():
         
         game, config = create_bottleneck_game(n_agents, OBSTACLES_SETUP, tau=tau, dt=dt, mode=mode)
         
-        # Solve
-        seed = 42
-        x_sol, u_sol, res = solve_game(game, seed=seed)
+        # 1. Run Particle Filter to find modes
+        print("  Running Particle Filter...")
+        estimates, trajs_np, dist_matrix = get_coarse_estimates(game, num_particles=150, noise_scale=0.2, cluster_threshold=2.0)
         
-        if not res.success and "acceptable" not in str(res.message).lower():
-            print(f"Warning: Solver did not converge for {name}")
+        # Save Raw Particles Plot
+        save_raw_particles(name, game, trajs_np, artifacts_dir)
+        
+        # Auto-tune eps logic (simplified from test_pf.py)
+        eps_values = [2.0, 3.0, 4.0, 5.0, 6.0, 8.0]
+        best_labels = None
+        max_clusters = 0
+        best_eps = 5.0
+        
+        for eps_test in eps_values:
+            labels = dbscan_from_dist_matrix(dist_matrix, 150, eps=eps_test, min_samples=3)
+            unique_l = np.unique(labels)
+            n_clusters = len(unique_l[unique_l != -1])
+            if n_clusters >= max_clusters and n_clusters > 0:
+                max_clusters = n_clusters
+                best_labels = labels
+                best_eps = eps_test
+        
+        if max_clusters > 0:
+            print(f"  Found {max_clusters} clusters with eps={best_eps}")
+            # Extract estimates
+            estimates = []
+            unique_labels = np.unique(best_labels)
+            valid_clusters = unique_labels[unique_labels != -1]
+            full_d = game.Qtau.shape[0]
             
-        # Metrics
-        met = calculate_metrics(x_sol, u_sol, game, config, dt)
-        met['condition'] = name
-        met['n_agents'] = n_agents
-        results.append(met)
+            for lab in valid_clusters:
+                indices = np.where(best_labels == lab)[0]
+                mean_traj = np.mean(trajs_np[indices], axis=0)
+                x_sol = mean_traj[:, :full_d].T 
+                u_sol = mean_traj[:, full_d:].T 
+                estimates.append((x_sol, u_sol))
+        else:
+            print("  No clusters found, using single estimate from mean of all.")
+            # If max_clusters == 0, implies everything is noise?
+            # Just take global mean
+            mean_traj = np.mean(trajs_np, axis=0)
+            x_sol = mean_traj[:, :full_d].T
+            u_sol = mean_traj[:, full_d:].T
+            estimates = [(x_sol, u_sol)]
+
+        print(f"  Refining {len(estimates)} modes...")
         
-        print(f"Metrics: {met}")
+        current_modes_data = []
         
-        # Save
-        save_results(name, game, x_sol, config, artifacts_dir)
-        
+        for i, (x_est, u_est) in enumerate(estimates):
+            print(f"    Mode {i+1}/{len(estimates)}...")
+            
+            # Solve with warm start
+            try:
+                x_sol, u_sol, res = solve_game(game, warm_start=(x_est, u_est))
+                
+                status = "Success" if res.success else "Failed"
+                if hasattr(res, 'message') and "acceptable" in str(res.message).lower():
+                    status = "Acceptable"
+                
+                print(f"      Result: {status}, Cost: {res.fun}")
+                
+                # Only save valid solutions? Or save all to see failures?
+                if res.success or status == "Acceptable":
+                     # Metrics
+                    met = calculate_metrics(x_sol, u_sol, game, config, dt)
+                    met['condition'] = name
+                    met['n_agents'] = n_agents
+                    met['mode_id'] = i
+                    met['cost'] = res.fun
+                    met['status'] = status
+                    results.append(met)
+                    
+                    # Store for summary
+                    current_modes_data.append((x_sol, u_sol, res.fun, status))
+                    
+                    # Save Artifacts
+                    save_results(name, i, game, x_sol, config, artifacts_dir)
+                else:
+                    print("      Skipping artifacts for failed solution.")
+                    
+            except Exception as e:
+                print(f"      Error solving mode {i+1}: {e}")
+                
+        # Save Mode Summary Plot
+        if current_modes_data:
+            save_mode_summary(name, game, current_modes_data, config, artifacts_dir)
+
     # CSV
-    df = pd.DataFrame(results)
-    cols = ['condition', 'n_agents', 'avg_velocity', 'avg_detour_pct', 'bottleneck_y_std', 'ambulance_velocity', 'traffic_velocity']
-    df = df[cols]
-    df.to_csv(os.path.join(artifacts_dir, "experiment2.csv"), index=False)
-    print(f"\nExperiment 2 Completed. Results at {artifacts_dir}")
+    if results:
+        df = pd.DataFrame(results)
+        cols = ['condition', 'mode_id', 'status', 'cost', 'n_agents', 'avg_velocity', 'avg_detour_pct', 'bottleneck_y_std', 'ambulance_velocity', 'traffic_velocity']
+        # Ensure columns exist
+        for c in cols:
+            if c not in df.columns:
+                df[c] = None
+        df = df[cols]
+        df.to_csv(os.path.join(artifacts_dir, "experiment2_pf.csv"), index=False)
+        print(f"\nExperiment 2 PF Completed. Results at {artifacts_dir}")
+    else:
+        print("\nNo valid results found.")
 
 if __name__ == "__main__":
     main()
-

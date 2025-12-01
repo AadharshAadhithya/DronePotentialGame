@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from car import create_car_game
 from drone import create_drone_game
 
-def solve_game(game, seed=None, noise_scale=0.01):
+def solve_game(game, seed=None, noise_scale=0.01, warm_start=None):
     """
     Solves the potential game using IPOPT.
     """
@@ -115,10 +115,16 @@ def solve_game(game, seed=None, noise_scale=0.01):
     ]
     
     # Initial guess
-    # Initialize with zeros or reference trajectory?
-    # Using reference trajectory for x might be good.
-    x0_ref = game.xref # (full_d, tau)
-    u0_ref = np.zeros((full_m, tau))
+    if warm_start is not None:
+        print("Using provided warm start.")
+        x0_ref, u0_ref = warm_start
+        # Ensure they are correct type/shape if needed, but assuming correct coming from pf
+    else:
+        # Initialize with zeros or reference trajectory?
+        # Using reference trajectory for x might be good.
+        x0_ref = game.xref # (full_d, tau)
+        u0_ref = np.zeros((full_m, tau))
+        
     z0 = np.concatenate([x0_ref.flatten(), u0_ref.flatten()])
     
     # Add small noise to avoid singular points if any
