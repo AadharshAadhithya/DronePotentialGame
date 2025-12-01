@@ -206,7 +206,7 @@ def calculate_metrics(x_sol, u_sol, game, dt=0.1):
         for j in range(i+1, n):
             xj = x_sol[j*d:(j+1)*d, :]
             dists = np.sqrt((xi[0]-xj[0])**2 + (xi[1]-xj[1])**2 + (xi[2]-xj[2])**2)
-            min_dist_pair = float(np.min(dists))
+            min_dist_pair = float(np.min(np.array(dists)))
             if min_dist_pair < min_dist_global:
                 min_dist_global = min_dist_pair
                 

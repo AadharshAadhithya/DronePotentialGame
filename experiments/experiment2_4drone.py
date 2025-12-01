@@ -330,7 +330,7 @@ def calculate_metrics(x_sol, game, players_config, dt=0.1):
                     min_dists.append(dist)
                     
     if min_dists:
-        metrics['min_dist_bottleneck'] = float(np.min(min_dists))
+        metrics['min_dist_bottleneck'] = float(np.min(np.array(min_dists)))
     else:
         metrics['min_dist_bottleneck'] = 0.0 # No one entered?
         
